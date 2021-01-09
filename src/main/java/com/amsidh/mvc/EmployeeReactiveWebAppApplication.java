@@ -1,6 +1,10 @@
 package com.amsidh.mvc;
 
 import java.io.Serializable;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.Date;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -19,16 +23,22 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.repository.ReactiveMongoRepository;
 import org.springframework.data.mongodb.repository.config.EnableReactiveMongoRepositories;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerCodecConfigurer;
+import org.springframework.security.authentication.ReactiveAuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
-import org.springframework.security.core.userdetails.MapReactiveUserDetailsService;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextImpl;
 import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.security.web.server.context.ServerSecurityContextRepository;
+import org.springframework.security.web.server.savedrequest.NoOpServerRequestCache;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Repository;
 import org.springframework.stereotype.Service;
@@ -39,7 +49,11 @@ import org.springframework.web.reactive.function.server.RouterFunction;
 import org.springframework.web.reactive.function.server.RouterFunctions;
 import org.springframework.web.reactive.function.server.ServerRequest;
 import org.springframework.web.reactive.function.server.ServerResponse;
+import org.springframework.web.server.ServerWebExchange;
 
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
@@ -71,16 +85,12 @@ public class EmployeeReactiveWebAppApplication {
 }
 
 @Component
+@AllArgsConstructor
 @Slf4j
 class EmployeeHandler {
 
 	private final EmployeeService employeeService;
-
-	public EmployeeHandler(EmployeeService employeeService) {
-		log.info("Loading EmployeeHandler!!!");
-		log.info("EmployeeService employeeService " + employeeService);
-		this.employeeService = employeeService;
-	}
+	private final JwtUtil jwtUtil;
 
 	public Mono<ServerResponse> createEmployee(ServerRequest serverRequest) {
 		log.info("Inside EmployeeHandler createEmployee method");
@@ -117,6 +127,32 @@ class EmployeeHandler {
 	public Mono<ServerResponse> getError(ServerRequest serverRequest) {
 		return ServerResponse.badRequest().bodyValue(new RuntimeException("My won runtime exception"));
 	}
+
+	public Mono<ServerResponse> signIn(ServerRequest serverRequest) {
+		Mono<LoginRequestModel> loginRequestModelMono = serverRequest.bodyToMono(LoginRequestModel.class);
+
+		return loginRequestModelMono.flatMap(loginRequestModel -> employeeService.getEmployeeByEmailId(loginRequestModel.getUsername())
+				.flatMap(employee -> {
+					if (employee.getPassword().equals(loginRequestModel.getPassword())) {
+						return ServerResponse.ok().bodyValue(new LoginResponseModel(jwtUtil.generateToken(loginRequestModel)));
+					} else {
+						return ServerResponse.badRequest().build();
+					}
+				}).switchIfEmpty(ServerResponse.badRequest().build()));
+	}
+}
+
+@Data
+@AllArgsConstructor
+class LoginResponseModel{
+	private String jwtToken;
+}
+
+@Data
+@AllArgsConstructor
+class LoginRequestModel {
+	private String username;
+	private String password;
 }
 
 @Configuration
@@ -200,11 +236,21 @@ class EmployeeRouter {
 						employeeHandler::getEmployeeById));
 	}
 
+	@Bean
+	public RouterFunction<ServerResponse> signInAndSignUpRoutes(EmployeeHandler employeeHandler) {
+		return RouterFunctions.route(RequestPredicates.POST("/signin")
+					                                  .and(RequestPredicates.contentType(MediaType.APPLICATION_JSON))
+					                                  .and(RequestPredicates.accept(MediaType.APPLICATION_JSON)), employeeHandler::signIn)
+				              .and(RouterFunctions.route(RequestPredicates.POST("/signup")
+										                                    .and(RequestPredicates.contentType(MediaType.APPLICATION_JSON))
+										                                    .and(RequestPredicates.accept(MediaType.APPLICATION_JSON)), employeeHandler::createEmployee));
+	}
+
 }
 
 @Repository
 interface EmployeeRepository extends ReactiveMongoRepository<Employee, Integer>, Serializable {
-
+	Mono<Employee> findByEmailId(String emailId);
 }
 
 @Data
@@ -218,6 +264,8 @@ class Employee implements Serializable {
 	private Integer id;
 	private String name;
 	private Double salary;
+	private String emailId; // acts as username
+	private String password;
 
 }
 
@@ -231,6 +279,8 @@ interface EmployeeService extends Serializable {
 	Mono<Employee> updateEmployee(Integer id, Employee employee);
 
 	Mono<Void> deleteEmployee(Integer id);
+
+	Mono<Employee> getEmployeeByEmailId(String emailId);
 }
 
 @Service
@@ -273,6 +323,8 @@ class EmployeeServiceImpl implements EmployeeService {
 		return findById.flatMap(emp -> {
 			Optional.ofNullable(employee.getName()).ifPresent(emp::setName);
 			Optional.ofNullable(employee.getSalary()).ifPresent(emp::setSalary);
+			Optional.ofNullable(employee.getEmailId()).ifPresent(emp::setEmailId);
+			Optional.ofNullable(employee.getPassword()).ifPresent(emp::setPassword);
 			return employeeRepository.save(emp);
 		});
 	}
@@ -281,6 +333,12 @@ class EmployeeServiceImpl implements EmployeeService {
 	public Mono<Void> deleteEmployee(Integer id) {
 		log.info("EmployeeServiceImpl deleteEmployee method called");
 		return this.employeeRepository.deleteById(id);
+	}
+
+	@Override
+	public Mono<Employee> getEmployeeByEmailId(String emailId) {
+		log.info("EmployeeServiceImpl getEmployeeByEmailId method called");
+		return this.employeeRepository.findByEmailId(emailId);
 	}
 
 }
@@ -313,7 +371,11 @@ class MyErrorHander extends AbstractErrorWebExceptionHandler {
 
 //Spring Security Configuration
 @EnableWebFluxSecurity
+@AllArgsConstructor
 class SpringWebFluxSecurityConfig {
+
+	private final AuthenticationManager authenticationManager;
+	private final SecurityContextRepository securityContextRepository;
 
 	@Bean
 	public SecurityWebFilterChain getSecurityFilterChain(ServerHttpSecurity serverHttpSecurity) {
@@ -326,24 +388,112 @@ class SpringWebFluxSecurityConfig {
 		// /demo/** no security
 		// /employee/** GET method should have USER role
 		// /test/** should have ROLE_ADMIN authority
-		serverHttpSecurity.authorizeExchange().pathMatchers("/demo/**").permitAll()
-				.pathMatchers(HttpMethod.GET, "/employee/**").hasRole("USER").pathMatchers("/test/**")
-				.hasAuthority("ROLE_ADMIN").anyExchange().authenticated().and().formLogin().and().httpBasic();
-        serverHttpSecurity.csrf().disable();
+		serverHttpSecurity.authorizeExchange(authorizeExchangeSpec -> {
+			authorizeExchangeSpec.pathMatchers("/demo/**", "/signin/**", "/signup/**").permitAll()
+					.pathMatchers(HttpMethod.GET, "/employee/**").hasRole("USER").pathMatchers("/test/**")
+					.hasAuthority("ROLE_ADMIN").anyExchange().authenticated();
+		}).exceptionHandling()
+				.authenticationEntryPoint((response, exception) -> Mono
+						.fromRunnable(() -> response.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED)))
+				.accessDeniedHandler((response, exception) -> Mono
+						.fromRunnable(() -> response.getResponse().setStatusCode(HttpStatus.FORBIDDEN)))
+				.and().formLogin().disable().httpBasic().disable().csrf().disable()
+				.authenticationManager(authenticationManager).securityContextRepository(securityContextRepository)
+				.requestCache().requestCache(NoOpServerRequestCache.getInstance());
+
 		return serverHttpSecurity.build();
 	}
 
-	@Bean
-	public MapReactiveUserDetailsService getUserDetailsService() {
+}
 
-		UserDetails user1 = User.withDefaultPasswordEncoder().username("amsidh").password("amsidh").roles("USER")
-				.build();    //Only USER Role
-		UserDetails user2 = User.withDefaultPasswordEncoder().username("adithi").password("adithi")
-				.roles("USER", "ADMIN").build();  // Both USER and ADMIN Role
-		
-		UserDetails user3 = User.withDefaultPasswordEncoder().username("adity").password("adity")
-				.roles("ADMIN").build(); //only ADMIN role. But whoever have ADMIN role he also get USER roles by default
+@Component
+class JwtUtil {
 
-		return new MapReactiveUserDetailsService(user1, user2, user3);
+	private String secret = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	private String expireTimeInMillSec = "300000";
+
+	public String generateToken(LoginRequestModel loginRequestModel) {
+
+		Date now = new Date();
+		Map<String, Object> claims = new HashMap<>();
+		claims.put("alg", "HS256");
+		claims.put("typ", "JWT");
+
+		return Jwts.builder().setHeaderParams(claims).setSubject(loginRequestModel.getUsername())
+				.signWith(SignatureAlgorithm.HS256, Base64.getEncoder().encodeToString(secret.getBytes()))
+				.setIssuedAt(now).setExpiration(new Date(now.getTime() + Long.parseLong(expireTimeInMillSec)))
+				.compact();
 	}
+
+	public Claims getClaimsFromToken(String token) {
+		return Jwts.parser().setSigningKey(Base64.getEncoder().encodeToString(secret.getBytes())).parseClaimsJws(token)
+				.getBody();
+	}
+
+	public String getUsernameFromToken(String token) {
+		return getClaimsFromToken(token).getSubject();
+	}
+
+	public Date getExpirationDate(String token) {
+		return getClaimsFromToken(token).getExpiration();
+	}
+
+	public Boolean isTokenExpired(String token) {
+		return getExpirationDate(token).before(new Date());
+	}
+
+	public Boolean isTokenValidated(String token) {
+		return !isTokenExpired(token);
+	}
+
+}
+
+@Component
+@AllArgsConstructor
+class AuthenticationManager implements ReactiveAuthenticationManager {
+
+	private JwtUtil jwtUtil;
+	private EmployeeRepository employeeRepository;
+
+	@Override
+	public Mono<Authentication> authenticate(Authentication authentication) {
+
+		String token = authentication.getCredentials().toString();
+		String username = jwtUtil.getUsernameFromToken(token);
+
+		return employeeRepository.findByEmailId(username).flatMap(employee -> {
+			if (employee.getEmailId().equals(username) && jwtUtil.isTokenValidated(token)) {
+				return Mono.just(authentication);
+			} else {
+				return Mono.empty();
+			}
+		}).switchIfEmpty(Mono.empty());
+	}
+
+}
+
+@Component
+@AllArgsConstructor
+class SecurityContextRepository implements ServerSecurityContextRepository {
+
+	private final AuthenticationManager authenticationManager;
+
+	@Override
+	public Mono<Void> save(ServerWebExchange exchange, SecurityContext context) {
+		return Mono.empty();
+	}
+
+	@Override
+	public Mono<SecurityContext> load(ServerWebExchange exchange) {
+		String bearer = "Bearer ";
+		return Mono.justOrEmpty(exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION))
+				.filter(authHeader -> authHeader.startsWith(bearer))
+				.map(subHeader -> subHeader.substring(bearer.length()))
+				.flatMap(token -> Mono.just(new UsernamePasswordAuthenticationToken(token, token,
+						Arrays.asList(new SimpleGrantedAuthority("ROLE_USER"),
+								new SimpleGrantedAuthority("ROLE_ADMIN")))))
+				.flatMap(authentication -> authenticationManager.authenticate(authentication)
+						.map(SecurityContextImpl::new));
+	}
+
 }
