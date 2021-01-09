@@ -23,9 +23,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerCodecConfigurer;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
+import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.core.userdetails.MapReactiveUserDetailsService;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Repository;
 import org.springframework.stereotype.Service;
@@ -311,6 +313,15 @@ class MyErrorHander extends AbstractErrorWebExceptionHandler {
 //Spring Security Configuration
 @EnableWebFluxSecurity
 class SpringWebFluxSecurityConfig {
+
+	@Bean
+	public SecurityWebFilterChain getSecurityFilterChain(ServerHttpSecurity serverHttpSecurity) {
+
+		// Default/inbuilt configuration. You add it or not. This will be present.
+		serverHttpSecurity.authorizeExchange().anyExchange().authenticated().and().httpBasic().and().formLogin();
+		
+		return serverHttpSecurity.build();
+	}
 
 	@Bean
 	public MapReactiveUserDetailsService getUserDetailsService() {
