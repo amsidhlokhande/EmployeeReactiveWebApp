@@ -98,6 +98,10 @@ class EmployeeHandler {
 				.body(employeeService.deleteEmployee(Integer.parseInt(serverRequest.pathVariable("id"))), Void.class);
 
 	}
+
+	public Mono<ServerResponse> getError(ServerRequest serverRequest) {
+		return ServerResponse.badRequest().bodyValue(new RuntimeException("My won runtime exception"));
+	}
 }
 
 @Configuration
@@ -156,6 +160,10 @@ class EmployeeRouter {
 						employeeHandler::deleteEmployeeById));
 	}
 
+	@Bean
+	public RouterFunction<ServerResponse> getErrorRoutes(EmployeeHandler employeeHandler) {
+		return RouterFunctions.route(RequestPredicates.GET("/error"), employeeHandler::getError);
+	}
 }
 
 @Repository
@@ -242,23 +250,27 @@ class EmployeeServiceImpl implements EmployeeService {
 }
 
 /*
- * @Configuration class OpenApiConfig{
+ * For Customize error handling we need to implement the AbstractErrorWebExceptionHandler
+ */
+/*
+ * @Component class MyErrorHander extends AbstractErrorWebExceptionHandler {
  * 
- * @Bean public OpenAPI customOpenAPI() { return new OpenAPI() .components(new
- * Components().addSecuritySchemes("basicScheme", new
- * SecurityScheme().type(SecurityScheme.Type.HTTP).scheme("basic"))) .info(new
- * Info().title("Coffee/employee/user API").version("0.0.1-SNAPSHOT")
- * .license(new License().name("Apache 2.0").url("http://springdoc.org"))); }
+ * public MyErrorHander(ErrorAttributes errorAttributes, Resources resources,
+ * ApplicationContext applicationContext, ServerCodecConfigurer
+ * serverCodecConfigurer) { super(errorAttributes, resources,
+ * applicationContext);
+ * super.setMessageReaders(serverCodecConfigurer.getReaders());
+ * super.setMessageWriters(serverCodecConfigurer.getWriters()); }
  * 
- * @Bean public GroupedOpenApi employeesOpenApi() { String[] paths = {
- * "/employees/**" }; return
- * GroupedOpenApi.builder().group("employees").pathsToMatch(paths) .build(); }
+ * @Override protected RouterFunction<ServerResponse>
+ * getRoutingFunction(ErrorAttributes errorAttributes) { return
+ * RouterFunctions.route(RequestPredicates.all(), this::errorHandler); }
  * 
- * @Bean public GroupedOpenApi userOpenApi() { String[] paths = { "/api/user/**"
- * }; return GroupedOpenApi.builder().group("users").pathsToMatch(paths)
- * .build(); }
+ * public Mono<ServerResponse> errorHandler(ServerRequest serverRequest) {
+ * Map<String, Object> errorAttributes = this.getErrorAttributes(serverRequest,
+ * false); return
+ * ServerResponse.status(HttpStatus.INTERNAL_SERVER_ERROR).body(BodyInserters.
+ * fromValue(errorAttributes)); }
  * 
- * @Bean public GroupedOpenApi coffeeOpenApi() { String[] paths = {
- * "/coffees/**" }; return
- * GroupedOpenApi.builder().group("coffees").pathsToMatch(paths) .build(); } }
+ * }
  */
