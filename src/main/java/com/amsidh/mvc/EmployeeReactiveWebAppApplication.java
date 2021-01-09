@@ -1,6 +1,7 @@
 package com.amsidh.mvc;
 
 import java.io.Serializable;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springdoc.core.GroupedOpenApi;
@@ -8,17 +9,28 @@ import org.springdoc.core.annotations.RouterOperation;
 import org.springdoc.core.annotations.RouterOperations;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.web.WebProperties.Resources;
+import org.springframework.boot.autoconfigure.web.reactive.error.AbstractErrorWebExceptionHandler;
+import org.springframework.boot.web.reactive.error.ErrorAttributes;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.repository.ReactiveMongoRepository;
 import org.springframework.data.mongodb.repository.config.EnableReactiveMongoRepositories;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.codec.ServerCodecConfigurer;
+import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
+import org.springframework.security.core.userdetails.MapReactiveUserDetailsService;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Repository;
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.server.RequestPredicates;
 import org.springframework.web.reactive.function.server.RouterFunction;
 import org.springframework.web.reactive.function.server.RouterFunctions;
@@ -162,8 +174,29 @@ class EmployeeRouter {
 
 	@Bean
 	public RouterFunction<ServerResponse> getErrorRoutes(EmployeeHandler employeeHandler) {
-		return RouterFunctions.route(RequestPredicates.GET("/error"), employeeHandler::getError);
+		return RouterFunctions.route(RequestPredicates.GET("/emp/error"), employeeHandler::getError);
 	}
+
+	@Bean
+	public RouterFunction<ServerResponse> routes1(EmployeeHandler employeeHandler) {
+		return RouterFunctions
+				.route(RequestPredicates.GET("/test").and(RequestPredicates.accept(MediaType.APPLICATION_JSON)),
+						employeeHandler::getEmployees)
+				.and(RouterFunctions.route(
+						RequestPredicates.GET("/test/{id}").and(RequestPredicates.accept(MediaType.APPLICATION_JSON)),
+						employeeHandler::getEmployeeById));
+	}
+
+	@Bean
+	public RouterFunction<ServerResponse> routes2(EmployeeHandler employeeHandler) {
+		return RouterFunctions
+				.route(RequestPredicates.GET("/demo").and(RequestPredicates.accept(MediaType.APPLICATION_JSON)),
+						employeeHandler::getEmployees)
+				.and(RouterFunctions.route(
+						RequestPredicates.GET("/demo/{id}").and(RequestPredicates.accept(MediaType.APPLICATION_JSON)),
+						employeeHandler::getEmployeeById));
+	}
+
 }
 
 @Repository
@@ -250,27 +283,43 @@ class EmployeeServiceImpl implements EmployeeService {
 }
 
 /*
- * For Customize error handling we need to implement the AbstractErrorWebExceptionHandler
+ * For Customize error handling we need to implement the
+ * AbstractErrorWebExceptionHandler
  */
-/*
- * @Component class MyErrorHander extends AbstractErrorWebExceptionHandler {
- * 
- * public MyErrorHander(ErrorAttributes errorAttributes, Resources resources,
- * ApplicationContext applicationContext, ServerCodecConfigurer
- * serverCodecConfigurer) { super(errorAttributes, resources,
- * applicationContext);
- * super.setMessageReaders(serverCodecConfigurer.getReaders());
- * super.setMessageWriters(serverCodecConfigurer.getWriters()); }
- * 
- * @Override protected RouterFunction<ServerResponse>
- * getRoutingFunction(ErrorAttributes errorAttributes) { return
- * RouterFunctions.route(RequestPredicates.all(), this::errorHandler); }
- * 
- * public Mono<ServerResponse> errorHandler(ServerRequest serverRequest) {
- * Map<String, Object> errorAttributes = this.getErrorAttributes(serverRequest,
- * false); return
- * ServerResponse.status(HttpStatus.INTERNAL_SERVER_ERROR).body(BodyInserters.
- * fromValue(errorAttributes)); }
- * 
- * }
- */
+
+@Component
+class MyErrorHander extends AbstractErrorWebExceptionHandler {
+
+	public MyErrorHander(ErrorAttributes errorAttributes, Resources resources, ApplicationContext applicationContext,
+			ServerCodecConfigurer serverCodecConfigurer) {
+		super(errorAttributes, resources, applicationContext);
+		super.setMessageReaders(serverCodecConfigurer.getReaders());
+		super.setMessageWriters(serverCodecConfigurer.getWriters());
+	}
+
+	@Override
+	protected RouterFunction<ServerResponse> getRoutingFunction(ErrorAttributes errorAttributes) {
+		return RouterFunctions.route(RequestPredicates.all(), this::errorHandler);
+	}
+
+	public Mono<ServerResponse> errorHandler(ServerRequest serverRequest) {
+		Map<String, Object> errorAttributes = this.getErrorAttributes(serverRequest, false);
+		return ServerResponse.status(HttpStatus.INTERNAL_SERVER_ERROR).body(BodyInserters.fromValue(errorAttributes));
+	}
+}
+
+//Spring Security Configuration
+@EnableWebFluxSecurity
+class SpringWebFluxSecurityConfig {
+
+	@Bean
+	public MapReactiveUserDetailsService getUserDetailsService() {
+
+		UserDetails user1 = User.withDefaultPasswordEncoder().username("amsidh").password("amsidh").roles("USER")
+				.build();
+		UserDetails user2 = User.withDefaultPasswordEncoder().username("adithi").password("adithi")
+				.roles("USER", "ADMIN").build();
+
+		return new MapReactiveUserDetailsService(user1, user2);
+	}
+}
