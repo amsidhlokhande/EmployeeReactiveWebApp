@@ -19,6 +19,7 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.repository.ReactiveMongoRepository;
 import org.springframework.data.mongodb.repository.config.EnableReactiveMongoRepositories;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerCodecConfigurer;
@@ -318,8 +319,17 @@ class SpringWebFluxSecurityConfig {
 	public SecurityWebFilterChain getSecurityFilterChain(ServerHttpSecurity serverHttpSecurity) {
 
 		// Default/inbuilt configuration. You add it or not. This will be present.
-		serverHttpSecurity.authorizeExchange().anyExchange().authenticated().and().httpBasic().and().formLogin();
-		
+		// serverHttpSecurity.authorizeExchange().anyExchange().authenticated().and().httpBasic().and().formLogin();
+		// Now customize the above security configuration
+
+		// For
+		// /demo/** no security
+		// /employee/** GET method should have USER role
+		// /test/** should have ROLE_ADMIN authority
+		serverHttpSecurity.authorizeExchange().pathMatchers("/demo/**").permitAll()
+				.pathMatchers(HttpMethod.GET, "/employee/**").hasRole("USER").pathMatchers("/test/**")
+				.hasAuthority("ROLE_ADMIN").anyExchange().authenticated().and().formLogin().and().httpBasic();
+        serverHttpSecurity.csrf().disable();
 		return serverHttpSecurity.build();
 	}
 
@@ -327,10 +337,13 @@ class SpringWebFluxSecurityConfig {
 	public MapReactiveUserDetailsService getUserDetailsService() {
 
 		UserDetails user1 = User.withDefaultPasswordEncoder().username("amsidh").password("amsidh").roles("USER")
-				.build();
+				.build();    //Only USER Role
 		UserDetails user2 = User.withDefaultPasswordEncoder().username("adithi").password("adithi")
-				.roles("USER", "ADMIN").build();
+				.roles("USER", "ADMIN").build();  // Both USER and ADMIN Role
+		
+		UserDetails user3 = User.withDefaultPasswordEncoder().username("adity").password("adity")
+				.roles("ADMIN").build(); //only ADMIN role. But whoever have ADMIN role he also get USER roles by default
 
-		return new MapReactiveUserDetailsService(user1, user2);
+		return new MapReactiveUserDetailsService(user1, user2, user3);
 	}
 }
