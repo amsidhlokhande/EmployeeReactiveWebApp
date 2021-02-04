@@ -291,10 +291,10 @@ class EmployeeServiceImpl implements EmployeeService {
  */
 
 @Component
-class MyErrorHander extends AbstractErrorWebExceptionHandler {
+class MyErrorHandler extends AbstractErrorWebExceptionHandler {
 
-	public MyErrorHander(ErrorAttributes errorAttributes, Resources resources, ApplicationContext applicationContext,
-			ServerCodecConfigurer serverCodecConfigurer) {
+	public MyErrorHandler(ErrorAttributes errorAttributes, Resources resources, ApplicationContext applicationContext,
+						  ServerCodecConfigurer serverCodecConfigurer) {
 		super(errorAttributes, resources, applicationContext);
 		super.setMessageReaders(serverCodecConfigurer.getReaders());
 		super.setMessageWriters(serverCodecConfigurer.getWriters());
