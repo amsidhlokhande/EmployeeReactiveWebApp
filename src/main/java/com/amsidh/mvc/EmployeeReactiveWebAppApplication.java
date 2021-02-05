@@ -326,9 +326,17 @@ class SpringWebFluxSecurityConfig {
 		// /demo/** no security
 		// /employee/** GET method should have USER role
 		// /test/** should have ROLE_ADMIN authority
-		serverHttpSecurity.authorizeExchange().pathMatchers("/demo/**").permitAll()
-				.pathMatchers(HttpMethod.GET, "/employee/**").hasRole("USER").pathMatchers("/test/**")
-				.hasAuthority("ROLE_ADMIN").anyExchange().authenticated().and().formLogin().and().httpBasic();
+		serverHttpSecurity.authorizeExchange()
+				.pathMatchers("/demo/**").permitAll()
+				.pathMatchers(HttpMethod.GET).permitAll()
+				.pathMatchers("/employee/**").hasRole("USER")
+				.pathMatchers("/test/**").hasAuthority("ROLE_ADMIN")
+				.anyExchange()
+				.authenticated()
+				.and()
+				.formLogin()
+				.and()
+				.httpBasic();
         serverHttpSecurity.csrf().disable();
 		return serverHttpSecurity.build();
 	}
